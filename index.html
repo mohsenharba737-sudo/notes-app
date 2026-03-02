@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <title>تطبيق الملاحظات</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: "Cairo", sans-serif;
+    }
+
+    body {
+      min-height: 100vh;
+      background: radial-gradient(circle at top, #ffe9f0 0, #f3f6ff 40%, #e6f7ff 100%);
+      display: flex;
+      justify-content: center;
+      padding: 40px 10px;
+      transition: 0.3s ease;
+    }
+
+    body.dark {
+      background: #0f172a;
+      color: #f1f5f9;
+    }
+
+    .app {
+      width: 100%;
+      max-width: 1100px;
+      background: rgba(255, 255, 255, 0.9);
+      border-radius: 24px;
+      padding: 24px;
+      transition: 0.3s ease;
+    }
+
+    body.dark .app {
+      background: rgba(30, 41, 59, 0.8);
+      color: #f1f5f9;
+    }
+
+    input, textarea, select {
+      background: rgba(248, 250, 252, 0.95);
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      padding: 8px;
+      width: 100%;
+      transition: 0.3s ease;
+    }
+
+    body.dark input,
+    body.dark textarea,
+    body.dark select {
+      background: #1e293b;
+      color: #f1f5f9;
+      border-color: #475569;
+    }
+
+    .btn-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: 1px solid #cbd5e1;
+      background: #fff;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    body.dark .btn-icon {
+      background: #1e293b;
+      color: #f1f5f9;
+      border-color: #475569;
+    }
+
+    .btn-icon:hover {
+      transform: scale(1.1);
+    }
+
+    .note-card {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      padding: 12px;
+      border-radius: 12px;
+      transition: 0.3s ease;
+    }
+
+    body.dark .note-card {
+      background: #1e293b;
+      border-color: #334155;
+    }
+
+    .notes-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%) translateY(120%);
+      background: #0f172a;
+      color: #fff;
+      padding: 10px 16px;
+      border-radius: 20px;
+      opacity: 0;
+      transition: 0.3s ease;
+    }
+
+    .toast.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="app">
+
+    <h1>📒 دفتر الملاحظات</h1>
+
+    <div style="display:flex; gap:10px; margin:10px 0;">
+      <input id="searchInput" type="text" placeholder="ابحث..." style="flex:1;">
+      <button class="btn-icon" id="darkModeBtn">🌙</button>
+      <button class="btn-icon" id="exportBtn">📤</button>
+      <button class="btn-icon" id="importBtn">📥</button>
+      <input type="file" id="importFile" accept="application/json" style="display:none">
+      <button class="btn-icon" id="clearAllBtn">🗑️</button>
+    </div>
+
+    <form id="noteForm" style="margin-top:20px;">
+      <input type="hidden" id="noteId">
+
+      <label>العنوان</label>
+      <input id="noteTitle" type="text">
+
+      <label>التصنيف</label>
+      <select id="noteCategory">
+        <option value="">بدون تصنيف</option>
+        <option value="شخصي">شخصي</option>
+        <option value="عمل">عمل</option>
+        <option value="دراسة">دراسة</option>
+      </select>
+
+      <label>المحتوى</label>
+      <textarea id="noteContent" rows="4"></textarea>
+
+      <button style="margin-top:10px; padding:8px 14px; border-radius:10px; border:none; background:#6366f1; color:#fff; cursor:pointer;">
+        💾 حفظ
+      </button>
+    </form>
+
+    <h2 style="margin-top:25px;">📚 ملاحظاتك</h2>
+    <div id="notesContainer" class="notes-list"></div>
+
+  </div>
+
+  <div class="toast" id="toast">تم الحفظ</div>
+
+<script>
+  const STORAGE_KEY = "notes-app-v2";
+  let notes = [];
+
+  const noteForm = document.getElementById("noteForm");
+  const noteId = document.getElementById("noteId");
+  const noteTitle = document.getElementById("noteTitle");
+  const noteCategory = document.getElementById("noteCategory");
+  const noteContent = document.getElementById("noteContent");
+  const notesContainer = document.getElementById("notesContainer");
+  const searchInput = document.getElementById("searchInput");
+  const toast = document.getElementById("toast");
+
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add("show");
+    setTimeout(() => toast.classList.remove("show"), 2000);
+  }
+
+  function saveNotes() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(notes));
+  }
+
+  function loadNotes() {
+    notes = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    renderNotes();
+  }
+
+  function formatDate(d) {
+    return new Date(d).toLocaleString("ar-EG");
+  }
+
+  function renderNotes() {
+    const q = searchInput.value.toLowerCase();
+    notesContainer.innerHTML = "";
+
+    notes
+      .filter(n => (n.title + n.content + n.category).toLowerCase().includes(q))
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .forEach(note => {
+        const card = document.createElement("div");
+        card.className = "note-card";
+
+        const title = document.createElement("h3");
+        title.textContent = note.title || "بدون عنوان";
+
+        const cat = document.createElement("p");
+        cat.textContent = note.category ? "🏷️ " + note.category : "";
+
+        const body = document.createElement("p");
+        body.textContent = note.content;
+
+        const date = document.createElement("small");
+        date.textContent = "⏱️ " + formatDate(note.updatedAt);
+
+        const editBtn = document.createElement("button");
+        editBtn.textContent = "✏️ تعديل";
+        editBtn.style.marginRight = "5px";
+        editBtn.onclick = () => {
+          noteId.value = note.id;
+          noteTitle.value = note.title;
+          noteCategory.value = note.category;
+          noteContent.value = note.content;
+        };
+
+        const delBtn = document.createElement("button");
+        delBtn.textContent = "🗑️ حذف";
+        delBtn.onclick = () => {
+          notes = notes.filter(n => n.id !== note.id);
+          saveNotes();
+          renderNotes();
+          showToast("تم الحذف");
+        };
+
+        card.appendChild(title);
+        card.appendChild(cat);
+        card.appendChild(body);
+        card.appendChild(date);
+        card.appendChild(editBtn);
+        card.appendChild(delBtn);
+
+        notesContainer.appendChild(card);
+      });
+  }
+
+  noteForm.addEventListener("submit", e => {
+    e.preventDefault();
+
+    const id = noteId.value;
+    const title = noteTitle.value.trim();
+    const content = noteContent.value.trim();
+    const category = noteCategory.value;
+
+    if (!title && !content) {
+      showToast("أدخل عنوانًا أو محتوى");
+      return;
+    }
+
+    if (id) {
+      const n = notes.find(n => n.id == id);
+      n.title = title;
+      n.content = content;
+      n.category = category;
+      n.updatedAt = Date.now();
+      showToast("تم التحديث");
+    } else {
+      notes.push({
+        id: Date.now(),
+        title,
+        content,
+        category,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      });
+      showToast("تم الحفظ");
+    }
+
+    saveNotes();
+    renderNotes();
+    noteForm.reset();
+    noteId.value = "";
+  });
+
+  searchInput.addEventListener("input", renderNotes);
+
+  // Enter للحفظ
+  noteContent.addEventListener("keydown", e => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      noteForm.requestSubmit();
+    }
+  });
+
+  // حذف الكل
+  document.getElementById("clearAllBtn").onclick = () => {
+    if (confirm("هل تريد حذف جميع الملاحظات؟")) {
+      notes = [];
+      saveNotes();
+      renderNotes();
+      showToast("تم حذف الكل");
+    }
+  };
+
+  // تصدير
+  document.getElementById("exportBtn").onclick = () => {
+    const blob = new Blob([JSON.stringify(notes, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "notes.json";
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast("تم التصدير");
+  };
+
+  // استيراد
+  document.getElementById("importBtn").onclick = () => {
+    document.getElementById("importFile").click();
+  };
+
+  document.getElementById("importFile").onchange = function () {
+    const file = this.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const data = JSON.parse(e.target.result);
+        if (!Array.isArray(data)) throw 0;
+        notes = data;
+        saveNotes();
+        renderNotes();
+        showToast("تم الاستيراد");
+      } catch {
+        showToast("ملف غير صالح");
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  // Dark Mode
+  const darkBtn = document.getElementById("darkModeBtn");
+
+  function applyTheme() {
+    const mode = localStorage.getItem("theme") || "light";
+    document.body.classList.toggle("dark", mode === "dark");
+    darkBtn.textContent = mode === "dark" ? "☀️" : "🌙";
+  }
+
+  darkBtn.onclick = () => {
+    const current = localStorage.getItem("theme") || "light";
+    const next = current === "light" ? "dark" : "light";
+    localStorage.setItem("theme", next);
+    applyTheme();
+  };
+
+  applyTheme();
+  loadNotes();
+</script>
+
+</body>
+</html>
